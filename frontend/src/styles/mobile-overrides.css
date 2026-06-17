@@ -1,0 +1,31 @@
+/* Mobile responsive overrides – preserves existing theme */
+@media (max-width: 640px) {
+  .container, .max-w-7xl, .section-container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .grid {
+    gap: 0.75rem;
+  }
+  .card {
+    padding: 1rem;
+  }
+  .btn-primary, .btn-secondary {
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+  }
+  h1 {
+    font-size: 1.875rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+  }
+  .step-indicator {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .step-indicator .step {
+    width: auto;
+    min-width: 70px;
+  }
+}

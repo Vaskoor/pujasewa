@@ -1,0 +1,42 @@
+  async register(dto: RegisterDto) {
+    const existingUser = await this.prisma.user.findFirst({
+      where: { OR: [{ email: dto.email }, { phone: dto.phone }] },
+    });
+    if (existingUser) throw new ConflictException('User already exists');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    
+    // Check if email service is enabled
+    let isVerified = false;
+    try {
+      // If SMTP credentials exist, require verification; else auto-verify
+      isVerified = !process.env.SMTP_USER || !process.env.SMTP_PASS;
+    } catch { isVerified = true; }
+    
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        phone: dto.phone,
+        passwordHash: hashedPassword,
+        role: dto.role || 'CUSTOMER',
+        isVerified,
+        profile: { create: { fullName: dto.fullName } },
+      },
+      include: { profile: true },
+    });
+
+    if (dto.role === 'PANDIT') {
+      await this.prisma.pandit.create({
+        data: { userId: user.id, verificationStatus: 'PENDING' },
+      });
+    }
+
+    // Send verification email only if email service is enabled
+    if (process.env.SMTP_USER && process.env.SMTP_PASS && !isVerified) {
+      const verificationToken = await this.tokenService.createVerificationToken(user.id);
+      await this.emailService.sendVerificationEmail(user.email, verificationToken);
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return { user, ...tokens };
+  }

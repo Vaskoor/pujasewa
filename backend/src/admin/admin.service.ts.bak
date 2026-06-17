@@ -1,0 +1,53 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+@Injectable()
+export class AdminService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async getStats() {
+    const [users, pandits, bookings, revenue] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.pandit.count(),
+      this.prisma.booking.count(),
+      this.prisma.booking.aggregate({
+        _sum: { totalAmount: true },
+        where: { paymentStatus: 'FULL_PAID' },
+      }),
+    ]);
+
+    const recentBookings = await this.prisma.booking.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      include: { pandit: { include: { user: { include: { profile: true } } } } },
+    });
+
+    // Strip private fields from admin view too
+    const safe = recentBookings.map(b => {
+      const { phone, altPhone, ...rest } = b as any;
+      return rest;
+    });
+
+    return {
+      totalUsers:    users,
+      totalPandits:  pandits,
+      totalBookings: bookings,
+      totalRevenue:  revenue._sum.totalAmount ?? 0,
+      recentBookings: safe,
+    };
+  }
+
+  async getPendingPayments() {
+    return this.prisma.booking.findMany({
+      where: { paymentStatus: 'UNPAID', status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async confirmPaymentAdmin(bookingId: string) {
+    return this.prisma.booking.update({
+      where: { id: bookingId },
+      data:  { paymentStatus: 'FULL_PAID', status: 'CONFIRMED' },
+    });
+  }
+}

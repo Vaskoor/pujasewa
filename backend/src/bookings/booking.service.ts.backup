@@ -1,0 +1,110 @@
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateBookingDto } from './dto/create-booking.dto';
+import { BookingStatus, PaymentStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
+
+const BOOKING_INCLUDE = {
+  customer:  { include: { profile: true } },
+  pandit:    { include: { user: { include: { profile: true } } } },
+  eventType: true,
+  package:   true,
+  payments:  true,
+  review:    true,
+};
+
+@Injectable()
+export class BookingService {
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
+
+  async createBooking(customerId: string, dto: CreateBookingDto) {
+    const slot = await this.prisma.availabilitySlot.findFirst({
+      where: {
+        panditId:  dto.panditId,
+        date:      dto.eventDate,
+        startTime: { lte: dto.eventTime },
+        endTime:   { gte: dto.eventTime },
+        isBooked:  false,
+      },
+    });
+    if (!slot) throw new BadRequestException('Pandit not available at the selected time');
+
+    const totalAmount = await this.calculateTotal(dto);
+
+    const booking = await this.prisma.booking.create({
+      data: {
+        customerId,
+        panditId:    dto.panditId,
+        eventTypeId: dto.eventTypeId,
+        packageId:   dto.packageId,
+        eventDate:   dto.eventDate,
+        eventTime:   dto.eventTime,
+        location:    dto.location,
+        totalAmount,
+        status:        BookingStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+      },
+      include: BOOKING_INCLUDE,
+    });
+
+    await this.prisma.availabilitySlot.update({
+      where: { id: slot.id },
+      data:  { isBooked: true },
+    });
+
+    await this.notifications.sendEmail(
+      (booking.customer as any).email,
+      'Booking Created — PanditJi',
+      `Your booking for ${booking.eventType.name} on ${new Date(booking.eventDate).toDateString()} has been created.`,
+    );
+
+    return booking;
+  }
+
+  async getBookingById(bookingId: string, userId: string, role: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where:   { id: bookingId },
+      include: BOOKING_INCLUDE,
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    // Only the customer, the pandit, or admin can view
+    const isOwner  = booking.customerId === userId || booking.panditId === userId;
+    if (!isOwner && role !== 'ADMIN') throw new ForbiddenException();
+
+    return booking;
+  }
+
+  async updateBookingStatus(
+    bookingId: string,
+    status: BookingStatus,
+    userId: string,
+    role: string,
+    cancellationReason?: string,
+  ) {
+    const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    if (role === 'PANDIT'   && booking.panditId   !== userId) throw new ForbiddenException();
+    if (role === 'CUSTOMER' && booking.customerId !== userId) throw new ForbiddenException();
+
+    const data: any = { status };
+    if (cancellationReason) data.cancellationReason = cancellationReason;
+
+    const updated = await this.prisma.booking.update({
+      where:   { id: bookingId },
+      data,
+      include: BOOKING_INCLUDE,
+    });
+    return updated;
+  }
+
+  private async calculateTotal(dto: CreateBookingDto): Promise<number> {
+    if (!dto.packageId) return 0;
+    const pkg = await this.prisma.package.findUnique({ where: { id: dto.packageId } });
+    return pkg?.price ?? 0;
+  }
+}

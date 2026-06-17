@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(uuid())
+  email              String              @unique
+  phone              String?             @unique
+  passwordHash       String
+  role               Role                @default(CUSTOMER)
+  isVerified         Boolean             @default(false)
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  twoFactorEnabled   Boolean             @default(false)
+  twoFactorSecret    String?
+  profile            Profile?
+  pandit             Pandit?
+  bookings           Booking[]           @relation("CustomerBookings")
+  reviews            Review[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  orders             Order[]
+  verificationTokens VerificationToken[]
+  refreshTokens      RefreshToken[]
+}
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String
+  photo     String?
+  address   String?
+  district  String?
+  province  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model Pandit {
+  id                 String                 @id @default(uuid())
+  userId             String                 @unique
+  bio                String?
+  experienceYears    Int                    @default(0)
+  rating             Float                  @default(0)
+  verificationStatus VerificationStatus     @default(PENDING)
+  isApproved         Boolean                @default(false)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation(fields: [userId], references: [id])
+  specializations    PanditSpecialization[]
+  availabilitySlots  AvailabilitySlot[]
+  bookings           Booking[]              @relation("PanditBookings")
+  reviews            Review[]
+  isAvailable       Boolean   @default(true)
+  caste             String?
+  religion          String?
+  baseRate          Int       @default(2000)
+}
+model PanditSpecialization {
+  id          String    @id @default(uuid())
+  panditId    String
+  eventTypeId String
+  pandit      Pandit    @relation(fields: [panditId], references: [id])
+  eventType   EventType @relation(fields: [eventTypeId], references: [id])
+}
+model AvailabilitySlot {
+  id        String   @id @default(uuid())
+  panditId  String
+  date      DateTime
+  startTime String
+  endTime   String
+  isBooked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  pandit    Pandit   @relation(fields: [panditId], references: [id])
+}
+model EventType {
+  id              String                 @id @default(uuid())
+  name            String                 @unique
+  description     String?
+  isActive        Boolean                @default(true)
+  createdBy       String?
+  createdAt       DateTime               @default(now())
+  specializations PanditSpecialization[]
+  bookings        Booking[]
+}
+model Package {
+  id            String    @id @default(uuid())
+  name          String
+  description   String?
+  price         Float
+  includesItems Json
+  isActive      Boolean   @default(true)
+  createdBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  bookings      Booking[]
+}
+model Booking {
+  id                 String        @id @default(uuid())
+  customerId         String
+  panditId           String
+  eventTypeId        String
+  packageId          String?
+  bookingDate        DateTime      @default(now())
+  eventDate          DateTime
+  eventTime          String
+  location           String
+  totalAmount        Float
+  status             BookingStatus @default(PENDING)
+  paymentStatus      PaymentStatus @default(UNPAID)
+  cancellationReason String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  customer           User          @relation("CustomerBookings", fields: [customerId], references: [id])
+  pandit             Pandit        @relation("PanditBookings", fields: [panditId], references: [id])
+  eventType          EventType     @relation(fields: [eventTypeId], references: [id])
+  package            Package?      @relation(fields: [packageId], references: [id])
+  payments           Payment[]
+  review             Review?
+  duration           Int               @default(120)
+  address            String?
+  caste              String?
+  email              String?
+  customerName       String?
+  district           String?
+  religion           String?
+  altPhone           String?
+  userId             String?
+  panditCancelReason String?
+  phone              String?
+  decorationId       String?
+}
+model Payment {
+  id              String                   @id @default(uuid())
+  bookingId       String
+  amount          Float
+  gateway         GatewayEnum
+  transactionId   String                   @unique
+  gatewayResponse Json?
+  status          PaymentTransactionStatus @default(PENDING)
+  createdAt       DateTime                 @default(now())
+  booking         Booking                  @relation(fields: [bookingId], references: [id])
+}
+model Review {
+  id         String   @id @default(uuid())
+  bookingId  String   @unique
+  customerId String
+  panditId   String
+  rating     Int
+  comment    String?
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  customer   User     @relation(fields: [customerId], references: [id])
+  pandit     Pandit   @relation(fields: [panditId], references: [id])
+}
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+model CmsPage {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  title     String
+  content   String
+  seoMeta   Json?
+  updatedAt DateTime @updatedAt
+}
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+model Order {
+  id          String   @id @default(uuid())
+  customerId  String
+  orderType   String
+  totalAmount Float
+  status      String   @default("PENDING")
+  items       Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  customer    User     @relation(fields: [customerId], references: [id])
+}
+model Decoration {
+  id          String   @id @default(uuid())
+  name        String
+  type        String
+  price       Float
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  emoji     String?
+  bookings  Booking[]
+  imageUrl  String?
+}
+model Inventory {
+  id            String   @id @default(uuid())
+  name          String
+  category      String
+  stockQuantity Int      @default(0)
+  unitPrice     Float
+  supplier      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+model VerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

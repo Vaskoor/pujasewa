@@ -1,0 +1,47 @@
+model Booking {
+  id                 String        @id @default(uuid())
+  customerId         String
+  panditId           String
+  eventTypeId        String
+  packageId          String?
+  bookingDate        DateTime      @default(now())
+  eventDate          DateTime
+  eventTime          String
+  location           String
+  totalAmount        Float
+  status             BookingStatus @default(PENDING)
+  paymentStatus      PaymentStatus @default(UNPAID)
+  cancellationReason String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  customer           User          @relation("CustomerBookings", fields: [customerId], references: [id])
+  pandit             Pandit        @relation("PanditBookings", fields: [panditId], references: [id])
+  eventType          EventType     @relation(fields: [eventTypeId], references: [id])
+  package            Package?      @relation(fields: [packageId], references: [id])
+  payments           Payment[]
+  review             Review?
+  customerName       String?
+  phone              String?
+  altPhone           String?
+  email              String?
+  address            String?
+  district           String?
+  caste              String?
+  religion           String?
+  duration           Int               @default(120)
+  decorationId       String?
+  panditCancelReason String?
+  userId             String?
+  customerName       String?
+  phone              String?
+  altPhone           String?
+  email              String?
+  address            String?
+  district           String?
+  caste              String?
+  religion           String?
+  duration           Int               @default(120)
+  decorationId       String?
+  panditCancelReason String?
+  userId             String?
+}

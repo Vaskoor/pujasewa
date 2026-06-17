@@ -1,0 +1,93 @@
+import * as crypto from "crypto";
+import { TokenService } from "../token/token.service";
+import { EmailService } from "../email/email.service";
+import { TwofaService } from "../twofa/twofa.service";
+import { BadRequestException } from "@nestjs/common";
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
+import * as bcrypt from 'bcrypt';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+  ) {}
+
+  async register(dto: RegisterDto) {
+    const existingUser = await this.prisma.user.findFirst({
+      where: { OR: [{ email: dto.email }, { phone: dto.phone }] },
+    });
+    if (existingUser) throw new ConflictException('User already exists');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        phone: dto.phone,
+        passwordHash: hashedPassword,
+        role: dto.role || 'CUSTOMER',
+        profile: {
+          create: { fullName: dto.fullName },
+        },
+      },
+      include: { profile: true },
+    });
+
+    if (dto.role === 'PANDIT') {
+      await this.prisma.pandit.create({
+        data: {
+          userId: user.id,
+          verificationStatus: 'PENDING',
+        },
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return { user, ...tokens };
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      include: { profile: true, pandit: true },
+    });
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+
+    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return { user, ...tokens };
+  }
+
+  async refreshTokens(refreshToken: string) {
+    try {
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+      if (!user) throw new UnauthorizedException();
+      return this.generateTokens(user.id, user.email, user.role);
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  private async generateTokens(userId: string, email: string, role: string) {
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(
+        { sub: userId, email, role },
+        { secret: process.env.JWT_SECRET, expiresIn: '15m' },
+      ),
+      this.jwtService.signAsync(
+        { sub: userId },
+        { secret: process.env.JWT_REFRESH_SECRET, expiresIn: '7d' },
+      ),
+    ]);
+    return { accessToken, refreshToken };
+  }
+}
